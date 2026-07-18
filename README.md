@@ -1,9 +1,9 @@
-# memchat — a chatbot that remembers across sessions
+# memchat - a chatbot that remembers across sessions
 
 A small demo **agent** that consumes Jennah's public memory APIs the way any
 external agent would: plain HTTP/JSON through the `jennah-proxy` gateway,
 authenticated with a `jennah_sk_` API key. No Jennah server internals are
-imported — this is a standalone Go module, so it doubles as a reference for
+imported - this is a standalone Go module, so it doubles as a reference for
 outside integrators.
 
 It shows off **unified memory**: semantic recall of past conversation *and* a
@@ -23,7 +23,7 @@ you> …                       ┌─ memory:query (semantic) ── recall past
 
 Cross-session memory is just **reusing the same `agent_instance_id`**, persisted
 to `memchat-state.json`. Graph writes are idempotent server side, so re-asserting
-a fact across turns just converges — the client keeps no id ledger. Delete the
+a fact across turns just converges - the client keeps no id ledger. Delete the
 state file to start a fresh persona.
 
 ## Prerequisites
@@ -31,7 +31,7 @@ state file to start a fresh persona.
 1. A Jennah API key for an **approved, entitled** enterprise. Mint one after
    logging in (console or `jnh`):
    `POST /v1/apikeys {"label":"memchat"}` → copy the `secret` (shown once).
-2. A chat model — Gemini (via **Vertex AI** with a GCP project + ADC, or via
+2. A chat model - Gemini (via **Vertex AI** with a GCP project + ADC, or via
    **Google AI Studio** with an API key), or Anthropic.
 
 The chat brain is pluggable: only the LLM differs, every Jennah memory call is
@@ -42,7 +42,7 @@ Vertex/GCP env is configured, otherwise **Anthropic**; force it with
 Studio key is present.
 
 The target region must have managed embeddings configured (prod `db0001` /
-`us-central1` does) — the demo sends plain text and lets the server embed it.
+`us-central1` does) - the demo sends plain text and lets the server embed it.
 
 ## Run
 
@@ -75,7 +75,7 @@ go run . -jennah-api-key jennah_sk_... -anthropic-api-key sk-ant-...
 On start it prints the chosen brain, e.g. `chat model: gemini/gemini-2.5-flash
 (vertex:my-gcp-project/us-central1)` or `(ai-studio)`.
 
-Then talk to it, quit (`/exit` or Ctrl-D), run it again — it recalls what you
+Then talk to it, quit (`/exit` or Ctrl-D), run it again - it recalls what you
 told it. Try: *"Hi, I'm Alice, I'm a backend engineer in Berlin and I'm learning
 to sail."* … quit … relaunch … *"what do you remember about me?"*
 
@@ -87,8 +87,8 @@ to sail."* … quit … relaunch … *"what do you remember about me?"*
   for max capability. Backends live behind the `brain` interface in `brain.go`.
 - `-verbose` surfaces the memory activity live: the recalled `user <rel> <value>`
   triples and past snippets before each reply, and the commit receipt
-  (`log=… vec=… nodes=… edges=…`) after — handy when demoing.
+  (`log=… vec=… nodes=… edges=…`) after - handy when demoing.
 - `remember_fact` stores the fact's human value in the graph node **Label** and
   the predicate as the edge **RelationshipType**, so a one-hop traversal from
   the `user` node reads back as readable `user <relationship> <value>` triples.
-- Fusion (`link:true`) is intentionally not used — it returns Unimplemented.
+- Fusion (`link:true`) is intentionally not used - it returns Unimplemented.
