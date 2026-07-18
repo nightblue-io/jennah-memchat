@@ -19,15 +19,15 @@
 // the set of graph ids already written, since graph writes are insert-only and
 // re-committing an id fails the whole commit) is persisted to a small state file.
 //
-// The chat brain is pluggable (see brain.go): it talks to Gemini or Claude
+// The chat brain is pluggable (see brain.go): it talks to Claude or Gemini
 // depending on which API key is present, or an explicit --provider. Only the LLM
 // differs — every memory call is identical, which is the whole point of the demo.
 //
 // Setup (Jennah key + one chat provider). Keys come from env or flags:
 //
 //	export JENNAH_API_KEY=jennah_sk_...      # from POST /v1/apikeys
-//	export GEMINI_API_KEY=...                # Google AI Studio key, OR
-//	export ANTHROPIC_API_KEY=sk-ant-...      # Anthropic key
+//	export ANTHROPIC_API_KEY=sk-ant-...      # Anthropic key, OR
+//	export GEMINI_API_KEY=...                # Google AI Studio key
 //	go run .                                 # talks to https://jennah.alphaus.cloud
 //
 // or pass them explicitly:
@@ -72,7 +72,7 @@ func main() {
 	var (
 		endpoint     = flag.String("endpoint", envOr("JENNAH_ENDPOINT", "https://jennah.alphaus.cloud"), "Jennah proxy origin (http/https)")
 		statePath    = flag.String("state", "memchat-state.json", "path to the local state file (agent id + committed graph ids)")
-		provider     = flag.String("provider", "auto", "chat LLM: auto|gemini|anthropic (auto picks by which API key is set)")
+		provider     = flag.String("provider", "auto", "chat LLM: auto|gemini|anthropic (auto prefers Anthropic, else Gemini, by which API key is set)")
 		jennahKey    = flag.String("jennah-api-key", "", "Jennah API key (jennah_sk_...); falls back to $JENNAH_API_KEY")
 		anthropicKey = flag.String("anthropic-api-key", "", "Anthropic API key (sk-ant-...); falls back to $ANTHROPIC_API_KEY")
 	)

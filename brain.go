@@ -27,17 +27,17 @@ const (
 	toolValDesc = "the object of the fact, e.g. 'Alice', 'hiking', 'software engineer', 'Tokyo'"
 )
 
-// newBrain selects the chat provider. "auto" prefers Gemini when a Gemini key is
-// present, else Anthropic — so someone with only one key set just runs `go run .`.
+// newBrain selects the chat provider. "auto" prefers Anthropic when an Anthropic
+// key is present, else Gemini — so someone with only one key set just runs `go run .`.
 // anthropicKey, when non-empty, is the Anthropic API key from --anthropic-api-key
 // (already defaulted to $ANTHROPIC_API_KEY); it overrides the SDK's own env lookup.
 func newBrain(ctx context.Context, provider, anthropicKey string) (brain, error) {
 	if provider == "auto" {
 		switch {
-		case os.Getenv("GEMINI_API_KEY") != "" || os.Getenv("GOOGLE_API_KEY") != "" || useVertexAI():
-			provider = "gemini"
 		case anthropicKey != "":
 			provider = "anthropic"
+		case os.Getenv("GEMINI_API_KEY") != "" || os.Getenv("GOOGLE_API_KEY") != "" || useVertexAI():
+			provider = "gemini"
 		default:
 			return nil, fmt.Errorf("no chat credentials found: set GEMINI_API_KEY / Vertex AI env (Gemini) or pass --anthropic-api-key / set ANTHROPIC_API_KEY (Anthropic), or pass --provider")
 		}
