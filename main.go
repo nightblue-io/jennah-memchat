@@ -93,7 +93,7 @@ func main() {
 	defer stop()
 
 	// The one part that varies by provider: the chat brain. Everything below is
-	// provider-agnostic — the memory APIs don't care which LLM is thinking.
+	// provider-agnostic; the memory APIs don't care which LLM is thinking.
 	br, err := newBrain(ctx, *provider, *anthropicKey)
 	if err != nil {
 		fatal("%v", err)
@@ -166,6 +166,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "warning: could not persist this turn's memory: %v\n", err)
 		}
 	}
+	if err := in.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "input error: %v\n", err)
+	}
 	fmt.Println("\nbye — your memory is saved in Jennah.")
 }
 
@@ -206,7 +209,9 @@ func buildSystemPrompt(knownFacts, snippets []string) string {
 		b.WriteString("(nothing yet — this may be your first conversation)\n")
 	} else {
 		for _, f := range knownFacts {
-			b.WriteString("- " + f + "\n")
+			b.WriteString("- ")
+			b.WriteString(f)
+			b.WriteString("\n")
 		}
 	}
 	b.WriteString("\n# Relevant snippets from past conversations\n")
@@ -214,7 +219,9 @@ func buildSystemPrompt(knownFacts, snippets []string) string {
 		b.WriteString("(none retrieved)\n")
 	} else {
 		for _, s := range snippets {
-			b.WriteString("- " + s + "\n")
+			b.WriteString("- ")
+			b.WriteString(s)
+			b.WriteString("\n")
 		}
 	}
 	return b.String()
@@ -283,8 +290,8 @@ func commitTurn(ctx context.Context, jc *jennahClient, agentID, userMsg, reply s
 	for _, f := range facts {
 		nid := "n_" + hash(strings.ToLower(f.value))
 		eid := "e_" + hash(strings.ToLower(f.rel)+"|"+strings.ToLower(f.value))
-		// Dedup within this single commit: a Spanner mutation set can't carry two
-		// writes for the same key. Idempotency across commits is the server's job.
+		// Dedup within this single commit: a mutation set can't carry two writes
+		// for the same key. Idempotency across commits is the server's job.
 		if !seenN[nid] {
 			nodes = append(nodes, &agentpb.GraphNode{NodeId: nid, Label: f.value})
 			seenN[nid] = true
