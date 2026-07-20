@@ -33,6 +33,11 @@
 // or pass them explicitly:
 //
 //	go run . --jennah-api-key jennah_sk_... --anthropic-api-key sk-ant-...
+//
+// The agent's home region can be chosen at first launch with --region (or
+// $JENNAH_REGION); it's applied only when the workspace is created, since an
+// agent is pinned to one region for its lifetime. Empty uses the platform default.
+// List the available regions with 'jnh agents regions'.
 package main
 
 import (
@@ -73,6 +78,7 @@ func main() {
 		endpoint     = flag.String("endpoint", envOr("JENNAH_ENDPOINT", "https://jennah.alphaus.cloud"), "Jennah proxy origin (http/https)")
 		statePath    = flag.String("state", "memchat-state.json", "path to the local state file (agent id + committed graph ids)")
 		provider     = flag.String("provider", "auto", "chat LLM: auto|gemini|anthropic (auto prefers Anthropic, else Gemini, by which API key is set)")
+		region       = flag.String("region", envOr("JENNAH_REGION", ""), "Jennah home region for the agent (e.g. us-central1); empty uses the platform default. Only applied when creating a new agent workspace. List regions with 'jnh agents regions'")
 		jennahKey    = flag.String("jennah-api-key", "", "Jennah API key (jennah_sk_...); falls back to $JENNAH_API_KEY")
 		anthropicKey = flag.String("anthropic-api-key", "", "Anthropic API key (sk-ant-...); falls back to $ANTHROPIC_API_KEY")
 	)
@@ -115,7 +121,7 @@ func main() {
 	// anchor node, then persist the id. Save only after the seed succeeds, so a
 	// crash mid-bootstrap doesn't leave a saved agent without its anchor node.
 	if st.AgentID == "" {
-		id, err := createAgent(ctx, jc)
+		id, err := createAgent(ctx, jc, *region)
 		if err != nil {
 			fatal("create agent: %v", err)
 		}
@@ -127,7 +133,11 @@ func main() {
 		}
 		st.AgentID = id
 		save(*statePath, st)
-		fmt.Printf("created agent workspace %s\n", id)
+		if *region != "" {
+			fmt.Printf("created agent workspace %s (region %s)\n", id, *region)
+		} else {
+			fmt.Printf("created agent workspace %s (platform default region)\n", id)
+		}
 	} else {
 		fmt.Printf("reusing agent workspace %s (memory carries over)\n", st.AgentID)
 	}
@@ -333,12 +343,16 @@ func commitTurn(ctx context.Context, jc *jennahClient, agentID, userMsg, reply s
 	return nil
 }
 
-func createAgent(ctx context.Context, jc *jennahClient) (string, error) {
+// createAgent provisions the agent workspace. region is the optional Jennah home
+// region ("" = platform default); it's honored only at creation time because an
+// agent instance is pinned to one home region for its lifetime.
+func createAgent(ctx context.Context, jc *jennahClient, region string) (string, error) {
 	id := randID("agent")
 	var resp agentpb.CreateAgentResponse
 	if _, err := jc.do(ctx, http.MethodPost, "/v1/agents", &agentpb.CreateAgentRequest{
 		AgentInstanceId: id,
 		AgentName:       "memchat-demo",
+		Region:          region,
 	}, &resp); err != nil {
 		return "", err
 	}

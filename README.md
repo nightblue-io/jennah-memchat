@@ -41,8 +41,12 @@ it with `-provider gemini|anthropic`. Within Gemini, Vertex is used when
 `GOOGLE_GENAI_USE_VERTEXAI=true` or when `GOOGLE_CLOUD_PROJECT` is set and no
 Studio key is present.
 
-The target region must have managed embeddings configured (prod `db0001` /
-`us-central1` does) - the demo sends plain text and lets the server embed it.
+The agent's home region is chosen at creation with `-region` (or `$JENNAH_REGION`);
+it's applied only on first launch, since an agent is pinned to one region for its
+lifetime, and empty uses the platform default. List the available regions with
+`jnh agents regions`. The target region must have managed embeddings configured
+(prod `db0001` / `us-central1` does) - the demo sends plain text and lets the
+server embed it.
 
 ## Run
 
@@ -67,6 +71,7 @@ go run .
 go run . -provider gemini   # force a provider regardless of which keys are set
 go run . -verbose           # show recalled triples/snippets + commit receipts each turn
 go run . -endpoint http://127.0.0.1:8090   # against a local proxy instead
+go run . -region us-central1               # pin the agent's home region (or $JENNAH_REGION)
 
 # …or pass the keys as flags instead of env vars:
 go run . -jennah-api-key jennah_sk_... -anthropic-api-key sk-ant-...
