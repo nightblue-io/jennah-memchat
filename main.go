@@ -13,7 +13,10 @@
 //  2. Claude answers, and calls the remember_fact tool to persist durable facts
 //     as (user)-[relationship]->(value) triples.
 //  3. memory:commit — writes the exchange as a vector chunk, any new facts as
-//     graph nodes/edges, and a turn record to the execution log, atomically.
+//     graph nodes/edges, and a turn record to the execution log, atomically. The
+//     receipt is then CHECKED, not discarded: it names any chunk whose embedding
+//     the model truncated, which is a memory-quality problem no error code
+//     reports (see printReceipt).
 //
 // Cross-session memory is simply reusing the same agent_instance_id: the id (and
 // the set of graph ids already written, since graph writes are insert-only and
@@ -375,6 +378,24 @@ func printReceipt(r *agentpb.CommitMemoryResponse) {
 	}
 	vlog("committed: log=%d vec=%d nodes=%d edges=%d @ %s",
 		r.GetExecutionLogRows(), r.GetVectorRows(), r.GetGraphNodeRows(), r.GetGraphEdgeRows(), ts)
+
+	// The commit SUCCEEDED, but Jennah is reporting that the embedding model
+	// truncated content past its input limit (~2048 tokens): the chunk's text is
+	// stored in full, while its vector covers only the beginning. Semantic recall
+	// can no longer find this turn by anything said in the part that was cut.
+	//
+	// Printed unconditionally, NOT under vlog. This is a silent memory-quality
+	// problem, and the reason the receipt reports it at all is so a caller doesn't
+	// have to be in verbose mode to find out. Any agent consuming these APIs should
+	// check this much.
+	//
+	// We deliberately do NOT set reject_on_truncation on the request: for a chatbot,
+	// losing the turn is worse than remembering most of it. A retrieval-critical
+	// ingest pipeline should make the opposite choice and split the content instead.
+	if ids := r.GetTruncatedChunkIds(); len(ids) > 0 {
+		fmt.Printf("  \033[33m[memory] that message was too long to embed in full (%s). "+
+			"It is stored, but recall may miss the end of it.\033[0m\n", strings.Join(ids, ", "))
+	}
 }
 
 // ---- HTTP client (protojson over the gateway, Bearer auth) ----
