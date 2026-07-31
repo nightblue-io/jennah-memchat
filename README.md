@@ -26,6 +26,10 @@ to `memchat-state.json`. Graph writes are idempotent server side, so re-assertin
 a fact across turns just converges - the client keeps no id ledger. Delete the
 state file to start a fresh persona.
 
+New workspaces are created as `demo.memchat_<random>`. `.` is the agent-selector
+separator, and selector matching is segment-anchored, so a role carrying the single
+selector `demo.*` reaches every workspace this demo mints - and nothing else.
+
 ## Prerequisites
 
 1. A Jennah API key for an **approved, entitled** enterprise. Mint one after
