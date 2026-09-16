@@ -37,7 +37,7 @@ Each turn executes a query-think-commit cycle:
 - **Graph Triples**: Entity names map to node labels; relationships map to edge relationship types.
 - **Deterministic IDs**: Entity node IDs are SHA-1 content hashes of their labels, ensuring that re-asserting an entity converges on the same node.
 - **Subject Resolution**: The user anchor has a dedicated node ID (`user`). When the user refers to themselves, the subject is omitted and resolves to `user`. When facts describe third-party entities, both subject and object are explicitly named.
-- **Relationship Normalization**: Reverse relationship phrases are normalized before commit (for example, `Chew IS_CTO_OF Alphaus` is normalized to `Alphaus HAS_CTO Chew`).
+- **Relationship Normalization**: Reverse relationship phrases are normalized before commit.
 - **Session Continuity**: The agent workspace ID is persisted locally in `memchat-state.json`. Re-running the application resumes the existing agent memory. Deleting `memchat-state.json` creates a fresh agent workspace.
 - **Workspace Namespacing**: Workspaces are created with the prefix `demo.memchat_<random>`. Role-based access policies targeting `demo.*` automatically cover any workspace created by this tool.
 
