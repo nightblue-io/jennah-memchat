@@ -12,7 +12,7 @@ import (
 // geminiModel keeps the interactive demo snappy and cheap; swap to
 // "gemini-2.5-pro" for maximum capability. The same id works on both the AI
 // Studio (API-key) and Vertex AI backends.
-const geminiModel = "gemini-2.5-flash"
+const geminiModel = "gemini-3.8-flash"
 
 // geminiBrain is the Google Gemini backend. It talks to either AI Studio (an
 // API key in GEMINI_API_KEY / GOOGLE_API_KEY) or Vertex AI (GCP project +
@@ -51,7 +51,7 @@ func newGeminiBrain(ctx context.Context) (*geminiBrain, error) {
 		}
 		location := envOr("GOOGLE_CLOUD_LOCATION", os.Getenv("GOOGLE_CLOUD_REGION"))
 		if location == "" {
-			location = "global" // Gemini 2.5 is served on the global endpoint
+			location = "global" // Gemini 3.8 is served on the global endpoint
 		}
 		cc.Backend = genai.BackendVertexAI
 		cc.Project = project

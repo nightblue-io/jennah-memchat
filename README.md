@@ -95,7 +95,7 @@ Exit a chat session with `/exit`, `/quit`, or Ctrl-D.
 
 Default models are chosen for low latency:
 - Anthropic: `claude-sonnet-5` (configured in `brain_anthropic.go`)
-- Gemini: `gemini-2.5-flash` (configured in `brain_gemini.go`)
+- Gemini: `gemini-3.8-flash` (configured in `brain_gemini.go`)
 
 To use other models (such as `claude-opus-4-8` or `gemini-2.5-pro`), update the model constant in the corresponding provider file.
 
