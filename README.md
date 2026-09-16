@@ -1,136 +1,137 @@
-# memchat - a chatbot that remembers across sessions
+# memchat
 
-A small demo **agent** that consumes Jennah's public memory APIs the way any
-external agent would: plain HTTP/JSON through the `jennah-proxy` gateway,
-authenticated with a `jennah_sk_` API key. No Jennah server internals are
-imported - this is a standalone Go module, so it doubles as a reference for
-outside integrators.
+A CLI chatbot demonstrating cross-session persistent memory using Jennah's public memory APIs over HTTP/JSON via `jennah-proxy`.
 
-It shows off **unified memory**: semantic recall of past conversation *and* a
-**knowledge graph** of the user and the people, orgs and things around them, both
-over the one memory transport.
+The client maintains state across sessions using two complementary memory models in Jennah:
+- **Semantic recall**: Vector search over previous conversation exchanges.
+- **Knowledge graph**: Entity and relationship extraction stored as graph nodes and edges.
 
-## What it does each turn
+This repository is a standalone Go module that interacts exclusively with the public HTTP/JSON gateway authenticated by a `jennah_sk_` API key.
+
+## Architecture
+
+Each turn executes a query-think-commit cycle:
 
 ```
-you> …                       ┌─ memory:query   (semantic) ── recall past exchanges
-                             ├─ memory:inspect (graph)    ── read the knowledge graph back
-     (query → think → commit)│
-                             ├─ Claude answers, calling remember_fact(...) for
-                             │  durable facts → (subject)-[relationship]->(object)
-                             └─ memory:commit ── vector chunk + new graph nodes/edges
-                                                 + an execution-log entry (atomic)
+[User Input]
+     │
+     ├── 1. Query ───┬─ memory:query   (semantic search over past turns)
+     │               └─ memory:inspect (full knowledge graph retrieval)
+     │
+     ├── 2. Think ────  LLM receives context and extracts facts via remember_fact tool
+     │
+     └── 3. Commit ───  memory:commit  (atomic write: vector chunk + graph nodes/edges + log)
 ```
 
-Each fact is a full triple: the model names the **subject**, so *"my CTO is Chew"*
-becomes `Alphaus -[HAS_CTO]-> Chew` rather than a spoke hanging off the user.
-Omitting the subject means the user, the one entity with a fixed node id (`user`)
-instead of a content hash.
+1. **Query**:
+   - `memory:query`: Performs semantic vector search across past turns. Query text is embedded by Jennah using server-managed embeddings.
+   - `memory:inspect`: Retrieves known knowledge graph triples. Full inspection is used instead of traversal queries because edge endpoints (`source_node_id`, `target_node_id`) are needed to reconstruct direction regardless of phrasing.
+2. **Think**:
+   - The LLM generates a response given the user message and recalled memory context.
+   - When durable facts are mentioned, the model invokes the `remember_fact` tool to emit `(subject)-[relationship]->(object)` triples.
+3. **Commit**:
+   - `memory:commit`: Atomically writes the turn exchange as a vector chunk, persists extracted graph nodes and edges, and records an execution log entry. The commit receipt is checked for embedding truncations.
 
-Cross-session memory is just **reusing the same `agent_instance_id`**, persisted
-to `memchat-state.json`. Graph writes are idempotent server side, so re-asserting
-a fact across turns just converges - the client keeps no id ledger. Delete the
-state file to start a fresh persona.
+## Memory Model & State
 
-New workspaces are created as `demo.memchat_<random>`. `.` is the agent-selector
-separator, and selector matching is segment-anchored, so a role carrying the single
-selector `demo.*` reaches every workspace this demo mints - and nothing else.
+- **Graph Triples**: Entity names map to node labels; relationships map to edge relationship types.
+- **Deterministic IDs**: Entity node IDs are SHA-1 content hashes of their labels, ensuring that re-asserting an entity converges on the same node.
+- **Subject Resolution**: The user anchor has a dedicated node ID (`user`). When the user refers to themselves, the subject is omitted and resolves to `user`. When facts describe third-party entities, both subject and object are explicitly named.
+- **Relationship Normalization**: Reverse relationship phrases are normalized before commit (for example, `Chew IS_CTO_OF Alphaus` is normalized to `Alphaus HAS_CTO Chew`).
+- **Session Continuity**: The agent workspace ID is persisted locally in `memchat-state.json`. Re-running the application resumes the existing agent memory. Deleting `memchat-state.json` creates a fresh agent workspace.
+- **Workspace Namespacing**: Workspaces are created with the prefix `demo.memchat_<random>`. Role-based access policies targeting `demo.*` automatically cover any workspace created by this tool.
 
 ## Prerequisites
 
-1. A Jennah API key for an **approved, entitled** enterprise. Mint one after
-   logging in (console or `jnh`):
-   `POST /v1/apikeys {"label":"memchat"}` → copy the `secret` (shown once).
-2. A chat model - Anthropic, or Gemini (via **Google AI Studio** with an API
-   key, or via **Vertex AI** with a GCP project + ADC).
+- **Jennah API Key**: A `jennah_sk_` key for an entitled enterprise (generate via console or `jnh`: `POST /v1/apikeys {"label":"memchat"}`).
+- **LLM Provider Credentials**: Either Anthropic Claude or Google Gemini:
+  - **Anthropic**: `ANTHROPIC_API_KEY`
+  - **Gemini (Google AI Studio)**: `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+  - **Gemini (Vertex AI)**: `GOOGLE_GENAI_USE_VERTEXAI=true`, `GOOGLE_CLOUD_PROJECT`, and Application Default Credentials
 
-The chat brain is pluggable: only the LLM differs, every Jennah memory call is
-identical. `-provider auto` (the default) picks **Anthropic** when an Anthropic
-key is configured, otherwise **Gemini** (a Gemini key or a Vertex/GCP env); force
-it with `-provider gemini|anthropic`. Within Gemini, Vertex is used when
-`GOOGLE_GENAI_USE_VERTEXAI=true` or when `GOOGLE_CLOUD_PROJECT` is set and no
-Studio key is present.
+## Usage
 
-The agent's home region is chosen at creation with `-region` (or `$JENNAH_REGION`);
-it's applied only on first launch, since an agent is pinned to one region for its
-lifetime, and empty uses the platform default. List the available regions with
-`jnh agents regions`. The target region must have managed embeddings configured
-(prod `db0001` / `us-central1` does) - the demo sends plain text and lets the
-server embed it.
+### Quick Start
 
-## Run
-
+With Anthropic Claude:
 ```sh
 export JENNAH_API_KEY=jennah_sk_...
-
-# Anthropic:
 export ANTHROPIC_API_KEY=sk-ant-...
-go run .                                        # auto-selects Anthropic
-
-# …or Gemini via Google AI Studio (API key):
-export GEMINI_API_KEY=...        # or GOOGLE_API_KEY
 go run .
+```
 
-# …or Gemini via Vertex AI (GCP project + ADC, no API key):
-gcloud auth application-default login          # once
+With Google Gemini via AI Studio:
+```sh
+export JENNAH_API_KEY=jennah_sk_...
+export GEMINI_API_KEY=...
+go run .
+```
+
+With Google Gemini via Vertex AI:
+```sh
+gcloud auth application-default login
+export JENNAH_API_KEY=jennah_sk_...
 export GOOGLE_GENAI_USE_VERTEXAI=true
 export GOOGLE_CLOUD_PROJECT=my-gcp-project
-export GOOGLE_CLOUD_LOCATION=us-central1       # optional; defaults to "global"
+export GOOGLE_CLOUD_LOCATION=us-central1 # optional, defaults to global
 go run .
-
-go run . -provider gemini   # force a provider regardless of which keys are set
-go run . -verbose           # show recalled triples/snippets + commit receipts each turn
-go run . -endpoint http://127.0.0.1:8090   # against a local proxy instead
-go run . -region us-central1               # pin the agent's home region (or $JENNAH_REGION)
-
-# …or pass the keys as flags instead of env vars:
-go run . -jennah-api-key jennah_sk_... -anthropic-api-key sk-ant-...
 ```
 
-On start it prints the chosen brain, e.g. `chat model: anthropic/claude-sonnet-5`
-or `chat model: gemini/gemini-2.5-flash (vertex:my-gcp-project/us-central1)`.
+### CLI Flags
 
-Then talk to it, quit (`/exit` or Ctrl-D), run it again - it recalls what you
-told it. Try: *"Hi, I'm Alice, I'm a backend engineer in Berlin and I'm learning
-to sail."* … quit … relaunch … *"what do you remember about me?"*
+| Flag | Environment Variable | Default | Description |
+| --- | --- | --- | --- |
+| `-endpoint` | `JENNAH_ENDPOINT` | `https://jennah.alphaus.cloud` | Jennah proxy origin URL |
+| `-provider` | | `auto` | LLM backend: `auto`, `gemini`, or `anthropic` |
+| `-region` | `JENNAH_REGION` | (platform default) | Region for agent creation (e.g. `us-central1`). List with `jnh agents regions` |
+| `-state` | | `memchat-state.json` | Path to local state file storing agent ID |
+| `-verbose` | | `false` | Print recalled snippets, facts, and commit receipts |
+| `-jennah-api-key` | `JENNAH_API_KEY` | | Jennah API key |
+| `-anthropic-api-key` | `ANTHROPIC_API_KEY` | | Anthropic API key |
 
-The graph earns its keep when you describe a structure and then ask across it:
+Exit a chat session with `/exit`, `/quit`, or Ctrl-D.
 
+## Example Session
+
+```text
+you> Hi, my name is Hajime, CEO of Alphaus in Tokyo.
+memo> Nice to meet you, Hajime! How can I help you and Alphaus today?
+
+you> My CTO is Chew, and my COO and CFO is Arai.
+memo> Got it. I have noted Chew as your CTO and Arai as COO and CFO.
+
+you> Arai owns the FinOps consulting department, with members: Gucci, Haruka, and Suna-kun.
+memo> Recorded the FinOps consulting team under Arai with Gucci, Haruka, and Suna-kun.
+
+you> /exit
+bye - your memory is saved in Jennah.
 ```
-you> hi, my name is hajime, a ceo of a tech startup called Alphaus, based in Tokyo
-you> i need your help to make my org chart. my cto is Chew, and COO and CFO is Arai
-you> arai owns the finops consulting department, with members: gucci, haruka, suna-kun
+
+When relaunching `memchat`:
+
+```text
+you> Who is in the FinOps department, and who do they report to?
+memo> The FinOps consulting department includes Gucci, Haruka, and Suna-kun. The department is led by Arai, who reports to you as COO and CFO.
 ```
 
-Relaunch and ask *"who is in the finops department, and who does each of them report
-to?"* - the answer is a walk over facts from three different turns. Each person and
-the department get their own node, and Arai's COO and CFO roles are two edges onto
-one node, so nothing ends up as a list stuffed into a label. Exact node and edge
-counts vary per run; the model decides how much to volunteer. See what was stored:
+## Model Configuration
+
+Default models are chosen for low latency:
+- Anthropic: `claude-sonnet-5` (configured in `brain_anthropic.go`)
+- Gemini: `gemini-2.5-flash` (configured in `brain_gemini.go`)
+
+To use other models (such as `claude-opus-4-8` or `gemini-2.5-pro`), update the model constant in the corresponding provider file.
+
+## Implementation Notes
+
+- **Graph Recall**: Uses `memory:inspect` instead of graph traversal queries (`memory:query`). Traversal rows project edge IDs and types without endpoint IDs, whereas `memory:inspect` returns full `source_node_id` and `target_node_id` fields.
+- **Commit Receipts**: When running with `-verbose`, commit receipts (`log`, `vec`, `nodes`, `edges`) are printed after each turn.
+- **Link Fusion**: Link fusion (`link: true`) is not enabled because the endpoint is currently unimplemented.
+
+## Inspecting Stored Memory
+
+To inspect the raw knowledge graph and memory stored in Jennah for an agent workspace:
 
 ```sh
 jnh scopes memory inspect <agent-id> --graph --all
 ```
-
-## Notes
-
-- Each provider defaults to a snappy/cheap model (`claude-sonnet-5`,
-  `gemini-2.5-flash`); edit `anthropicModel` in `brain_anthropic.go`
-  (→ `anthropic.ModelClaudeOpus4_8`) or `geminiModel` in `brain_gemini.go`
-  (→ `gemini-2.5-pro`) for max capability. Backends live behind the `brain`
-  interface in `brain.go`.
-- `-verbose` surfaces the memory activity live: the recalled
-  `<subject> <relationship> <object>` triples and past snippets before each reply,
-  and the commit receipt (`log=… vec=… nodes=… edges=…`) after - handy when demoing.
-- `remember_fact` stores entity names as node **Label**s and predicates as edge
-  **RelationshipType**s. Node ids are content-hashed from the label, so an entity
-  named twice converges on one node. One entity per field: three team members is
-  three calls, never one call with a list.
-- `inverseRel` in `main.go` flips backwards-phrased relationships (`Chew IS_CTO_OF
-  Alphaus` → `Alphaus HAS_CTO Chew`) so both phrasings converge on one edge. A small
-  normalization table, not an ontology - the vocabulary stays open.
-- Graph recall uses `memory:inspect`, not a `memory:query` traversal: a traversal
-  row projects the edge's id and type but not its endpoints, so direction is only
-  known when a step pins it, and an outgoing walk from `user` would miss every fact
-  phrased the other way. Inspect returns `source_node_id` / `target_node_id`.
-- Fusion (`link:true`) is intentionally not used - it returns Unimplemented.
