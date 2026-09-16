@@ -91,29 +91,6 @@ go run .
 
 Exit a chat session with `/exit`, `/quit`, or Ctrl-D.
 
-## Example Session
-
-```text
-you> Hi, my name is Hajime, CEO of Alphaus in Tokyo.
-memo> Nice to meet you, Hajime! How can I help you and Alphaus today?
-
-you> My CTO is Chew, and my COO and CFO is Arai.
-memo> Got it. I have noted Chew as your CTO and Arai as COO and CFO.
-
-you> Arai owns the FinOps consulting department, with members: Gucci, Haruka, and Suna-kun.
-memo> Recorded the FinOps consulting team under Arai with Gucci, Haruka, and Suna-kun.
-
-you> /exit
-bye - your memory is saved in Jennah.
-```
-
-When relaunching `memchat`:
-
-```text
-you> Who is in the FinOps department, and who do they report to?
-memo> The FinOps consulting department includes Gucci, Haruka, and Suna-kun. The department is led by Arai, who reports to you as COO and CFO.
-```
-
 ## Model Configuration
 
 Default models are chosen for low latency:
