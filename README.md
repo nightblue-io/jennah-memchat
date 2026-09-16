@@ -7,19 +7,25 @@ imported - this is a standalone Go module, so it doubles as a reference for
 outside integrators.
 
 It shows off **unified memory**: semantic recall of past conversation *and* a
-per-user **knowledge graph**, both over the one memory transport.
+**knowledge graph** of the user and the people, orgs and things around them, both
+over the one memory transport.
 
 ## What it does each turn
 
 ```
-you> …                       ┌─ memory:query (semantic) ── recall past exchanges
-                             ├─ memory:query (graph)   ── traverse user's fact graph
+you> …                       ┌─ memory:query   (semantic) ── recall past exchanges
+                             ├─ memory:inspect (graph)    ── read the knowledge graph back
      (query → think → commit)│
                              ├─ Claude answers, calling remember_fact(...) for
-                             │  durable facts → (user)-[relationship]->(value)
+                             │  durable facts → (subject)-[relationship]->(object)
                              └─ memory:commit ── vector chunk + new graph nodes/edges
                                                  + an execution-log entry (atomic)
 ```
+
+Each fact is a full triple: the model names the **subject**, so *"my CTO is Chew"*
+becomes `Alphaus -[HAS_CTO]-> Chew` rather than a spoke hanging off the user.
+Omitting the subject means the user, the one entity with a fixed node id (`user`)
+instead of a content hash.
 
 Cross-session memory is just **reusing the same `agent_instance_id`**, persisted
 to `memchat-state.json`. Graph writes are idempotent server side, so re-asserting
@@ -88,6 +94,24 @@ Then talk to it, quit (`/exit` or Ctrl-D), run it again - it recalls what you
 told it. Try: *"Hi, I'm Alice, I'm a backend engineer in Berlin and I'm learning
 to sail."* … quit … relaunch … *"what do you remember about me?"*
 
+The graph earns its keep when you describe a structure and then ask across it:
+
+```
+you> hi, my name is hajime, a ceo of a tech startup called Alphaus, based in Tokyo
+you> i need your help to make my org chart. my cto is Chew, and COO and CFO is Arai
+you> arai owns the finops consulting department, with members: gucci, haruka, suna-kun
+```
+
+Relaunch and ask *"who is in the finops department, and who does each of them report
+to?"* - the answer is a walk over facts from three different turns. Each person and
+the department get their own node, and Arai's COO and CFO roles are two edges onto
+one node, so nothing ends up as a list stuffed into a label. Exact node and edge
+counts vary per run; the model decides how much to volunteer. See what was stored:
+
+```sh
+jnh scopes memory inspect <agent-id> --graph --all
+```
+
 ## Notes
 
 - Each provider defaults to a snappy/cheap model (`claude-sonnet-5`,
@@ -95,10 +119,18 @@ to sail."* … quit … relaunch … *"what do you remember about me?"*
   (→ `anthropic.ModelClaudeOpus4_8`) or `geminiModel` in `brain_gemini.go`
   (→ `gemini-2.5-pro`) for max capability. Backends live behind the `brain`
   interface in `brain.go`.
-- `-verbose` surfaces the memory activity live: the recalled `user <rel> <value>`
-  triples and past snippets before each reply, and the commit receipt
-  (`log=… vec=… nodes=… edges=…`) after - handy when demoing.
-- `remember_fact` stores the fact's human value in the graph node **Label** and
-  the predicate as the edge **RelationshipType**, so a one-hop traversal from
-  the `user` node reads back as readable `user <relationship> <value>` triples.
+- `-verbose` surfaces the memory activity live: the recalled
+  `<subject> <relationship> <object>` triples and past snippets before each reply,
+  and the commit receipt (`log=… vec=… nodes=… edges=…`) after - handy when demoing.
+- `remember_fact` stores entity names as node **Label**s and predicates as edge
+  **RelationshipType**s. Node ids are content-hashed from the label, so an entity
+  named twice converges on one node. One entity per field: three team members is
+  three calls, never one call with a list.
+- `inverseRel` in `main.go` flips backwards-phrased relationships (`Chew IS_CTO_OF
+  Alphaus` → `Alphaus HAS_CTO Chew`) so both phrasings converge on one edge. A small
+  normalization table, not an ontology - the vocabulary stays open.
+- Graph recall uses `memory:inspect`, not a `memory:query` traversal: a traversal
+  row projects the edge's id and type but not its endpoints, so direction is only
+  known when a step pins it, and an outgoing walk from `user` would miss every fact
+  phrased the other way. Inspect returns `source_node_id` / `target_node_id`.
 - Fusion (`link:true`) is intentionally not used - it returns Unimplemented.

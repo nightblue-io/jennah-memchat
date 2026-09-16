@@ -71,10 +71,13 @@ func newGeminiBrain(ctx context.Context) (*geminiBrain, error) {
 				Parameters: &genai.Schema{
 					Type: genai.TypeObject,
 					Properties: map[string]*genai.Schema{
+						"subject":      {Type: genai.TypeString, Description: toolSubjDesc},
 						"relationship": {Type: genai.TypeString, Description: toolRelDesc},
-						"value":        {Type: genai.TypeString, Description: toolValDesc},
+						"object":       {Type: genai.TypeString, Description: toolObjDesc},
 					},
-					Required: []string{"relationship", "value"},
+					// subject is optional: omitted means the user, which keeps the
+					// common case ("my name is Hajime") a two-field call as before.
+					Required: []string{"relationship", "object"},
 				},
 			}},
 		}},
@@ -108,10 +111,11 @@ func (b *geminiBrain) chat(ctx context.Context, system, userMsg string) (string,
 			switch {
 			case part.FunctionCall != nil:
 				fc := part.FunctionCall
+				subj, _ := fc.Args["subject"].(string)
 				rel, _ := fc.Args["relationship"].(string)
-				val, _ := fc.Args["value"].(string)
-				if strings.TrimSpace(rel) != "" && strings.TrimSpace(val) != "" {
-					facts = append(facts, fact{rel: rel, value: val})
+				obj, _ := fc.Args["object"].(string)
+				if strings.TrimSpace(rel) != "" && strings.TrimSpace(obj) != "" {
+					facts = append(facts, fact{subj: subj, rel: rel, obj: obj})
 				}
 				toolResults = append(toolResults, genai.NewPartFromFunctionResponse(
 					fc.Name, map[string]any{"result": "noted"}))

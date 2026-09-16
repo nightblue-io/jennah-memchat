@@ -7,20 +7,25 @@
 //
 // Each turn does query → think → commit:
 //
-//  1. memory:query — semantic recall of past exchanges (the server embeds the
-//     query text via managed embeddings), plus a graph traversal from the
-//     stable "user" node to list everything already known about the user.
+//  1. memory:query for semantic recall of past exchanges (the server embeds the
+//     query text via managed embeddings), plus memory:inspect to read the whole
+//     knowledge graph back as triples. See recallFacts for why the graph side
+//     enumerates rather than traverses: edge direction is the model's phrasing
+//     choice, and only inspect reports it.
 //  2. Claude answers, and calls the remember_fact tool to persist durable facts
-//     as (user)-[relationship]->(value) triples.
+//     as (subject)-[relationship]->(object) triples. The subject is the model's
+//     to choose, so a fact relating two entities the user merely mentioned is
+//     expressible as itself rather than as a spoke off the user.
 //  3. memory:commit — writes the exchange as a vector chunk, any new facts as
 //     graph nodes/edges, and a turn record to the execution log, atomically. The
 //     receipt is then CHECKED, not discarded: it names any chunk whose embedding
 //     the model truncated, which is a memory-quality problem no error code
 //     reports (see printReceipt).
 //
-// Cross-session memory is simply reusing the same agent_instance_id: the id (and
-// the set of graph ids already written, since graph writes are insert-only and
-// re-committing an id fails the whole commit) is persisted to a small state file.
+// Cross-session memory is simply reusing the same agent_instance_id, persisted to
+// a small state file. Nothing else needs tracking: graph writes are idempotent
+// upserts on caller-supplied ids, so re-asserting a fact across sessions converges
+// on the same node and edge instead of duplicating or failing.
 //
 // The chat brain is pluggable (see brain.go): it talks to Claude or Gemini
 // depending on which API key is present, or an explicit --provider. Only the LLM
@@ -64,16 +69,17 @@ import (
 	agentpb "github.com/alphauslabs/jennah-sdk-go/jennah/agent/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // verbose makes the memory activity visible on screen: recalled triples and
 // snippets before each reply, and the commit receipt after. Set by --verbose.
 var verbose bool
 
-// userNode is the stable anchor every fact hangs off, so a traversal from it
-// recalls the whole per-user knowledge graph. Created once, then never re-sent
-// (graph nodes are insert-only server-side).
+// userNode is the stable anchor the knowledge graph is reachable from, so a
+// traversal always has a known place to start. It is the one node with a fixed
+// id rather than a content hash; every other entity gets one from nodeID.
+// Seeded once at bootstrap and never re-sent: node writes are idempotent
+// upserts, so re-sending it would silently overwrite its label.
 const userNode = "user"
 
 // demoPrefix namespaces every workspace this demo creates under a "demo." subtree.
@@ -223,9 +229,9 @@ func buildSystemPrompt(knownFacts, snippets []string) string {
 	var b strings.Builder
 	b.WriteString("You are Memo, a warm, concise assistant with long-term memory that persists across sessions. ")
 	b.WriteString("Personalize using the remembered context below and refer back to it naturally. ")
-	b.WriteString("Whenever the user shares a durable fact about themselves — their name, preferences, job, location, goals, or important people/things — call remember_fact to store it (one call per fact). Do not store transient chit-chat.\n\n")
+	b.WriteString("Whenever the user shares a durable fact, call remember_fact to store it as one (subject, relationship, object) triple: their name, preferences, job, location and goals, and also the people, organizations and teams they mention and how those relate to one another. One call per fact, one entity per field: a team with three members is three calls, not one call listing three names. Do not store transient chit-chat.\n\n")
 
-	b.WriteString("# What you already know about the user (knowledge graph)\n")
+	b.WriteString("# What you already know (knowledge graph)\n")
 	if len(knownFacts) == 0 {
 		b.WriteString("(nothing yet — this may be your first conversation)\n")
 	} else {
@@ -267,34 +273,79 @@ func recallSemantic(ctx context.Context, jc *jennahClient, agentID, query string
 	return out, nil
 }
 
+// recallPageLimit is the page size for the graph read-out, and maxRecallPages
+// bounds the walk so a runaway workspace can't stall a chat turn.
+const (
+	recallPageLimit = 200
+	maxRecallPages  = 10
+)
+
+// recallFacts reads back the whole knowledge graph as readable triples.
+//
+// This uses memory:inspect rather than a memory:query traversal, and the reason is
+// edge DIRECTION. A traversal row projects the edge's id, type and valid-time but
+// not its endpoints, so orientation is only known when the step pins a direction:
+// an OUTGOING walk from the user anchor reads "user is named Hajime" correctly and
+// never sees "Chew is cto of Alphaus", because that edge points AT Alphaus rather
+// than away from it. Which way a fact points is the model's phrasing choice, so
+// half the graph would silently vanish from the prompt. Pinning INCOMING instead
+// just loses the other half, and a path that changes direction mid-walk (user ->
+// Hajime -> Alphaus <- Chew) is not expressible as one query at all, since steps
+// fix a direction per hop.
+//
+// Inspect returns edges with source_node_id and target_node_id, so every fact is
+// rendered the way it was asserted, in one request instead of a query per depth.
+// The trade is that it enumerates the workspace rather than walking from the user,
+// which for a personal graph is what "what do you already know" actually means:
+// it also recovers anything the model asserted without a path back to the anchor.
 func recallFacts(ctx context.Context, jc *jennahClient, agentID string) ([]string, error) {
-	var resp agentpb.QueryMemoryResponse
-	if _, err := jc.do(ctx, http.MethodPost, memoryPath(agentID, "query"), &agentpb.QueryMemoryRequest{
-		AgentInstanceId: agentID,
-		Graph: &agentpb.GraphQuery{
-			Start: &agentpb.GraphNodeMatch{
-				Filters: []*agentpb.PropertyFilter{{Key: "NodeId", Value: structpb.NewStringValue(userNode)}},
+	labels := map[string]string{}
+	var edges []*agentpb.GraphEdge
+
+	var nodeTok, edgeTok string
+	for page := 0; page < maxRecallPages; page++ {
+		var resp agentpb.InspectMemoryResponse
+		if _, err := jc.do(ctx, http.MethodPost, memoryPath(agentID, "inspect"), &agentpb.InspectMemoryRequest{
+			AgentInstanceId: agentID,
+			Graph: &agentpb.InspectGraph{
+				NodeLimit:     recallPageLimit,
+				EdgeLimit:     recallPageLimit,
+				NodePageToken: nodeTok,
+				EdgePageToken: edgeTok,
 			},
-			Steps: []*agentpb.GraphStep{{
-				Direction: agentpb.GraphDirection_GRAPH_DIRECTION_OUTGOING,
-				Node:      &agentpb.GraphNodeMatch{},
-			}},
-			Limit: 100,
-		},
-	}, &resp); err != nil {
-		return nil, err
-	}
-	// A start-node + one-hop traversal returns rows keyed n0_id, n0_label,
-	// e0_type (relationship), n1_id, n1_label (the value we stored as Label).
-	var out []string
-	for _, row := range resp.GetGraph().GetRows() {
-		m := row.AsMap()
-		rel := prettyRel(rowStr(m, "e0_type"))
-		val := rowStr(m, "n1_label")
-		if val == "" {
-			continue
+		}, &resp); err != nil {
+			return nil, err
 		}
-		out = append(out, fmt.Sprintf("user %s %s", rel, val))
+		for _, n := range resp.GetGraph().GetNodes() {
+			labels[n.GetNodeId()] = n.GetLabel()
+		}
+		edges = append(edges, resp.GetGraph().GetEdges()...)
+
+		// The two listings exhaust independently, so keep going while EITHER has
+		// more. An empty token means that listing is done, not merely this page.
+		nodeTok, edgeTok = resp.GetNextNodeToken(), resp.GetNextEdgeToken()
+		if nodeTok == "" && edgeTok == "" {
+			break
+		}
+	}
+
+	// Join each edge to its endpoints' labels. A node id with no label means the
+	// node listing was cut short by maxRecallPages while its edges came back;
+	// showing the raw id is more useful to the model than dropping the fact.
+	label := func(id string) string {
+		if l := strings.TrimSpace(labels[id]); l != "" {
+			return l
+		}
+		return id
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range edges {
+		line := tripleText(label(e.GetSourceNodeId()), e.GetRelationshipType(), label(e.GetTargetNodeId()))
+		if !seen[line] {
+			out = append(out, line)
+			seen[line] = true
+		}
 	}
 	return out, nil
 }
@@ -308,21 +359,42 @@ func commitTurn(ctx context.Context, jc *jennahClient, agentID, userMsg, reply s
 	var nodes []*agentpb.GraphNode
 	var edges []*agentpb.GraphEdge
 	seenN, seenE := map[string]bool{}, map[string]bool{}
+	addNode := func(label string) string {
+		id := nodeID(label)
+		// The user anchor is seeded once at bootstrap and carries its own label;
+		// re-writing it here would overwrite "User" with whatever the model typed.
+		if id != userNode && !seenN[id] {
+			nodes = append(nodes, &agentpb.GraphNode{NodeId: id, Label: strings.TrimSpace(label)})
+			seenN[id] = true
+		}
+		return id
+	}
+	var stored []string
 	for _, f := range facts {
-		nid := "n_" + hash(strings.ToLower(f.value))
-		eid := "e_" + hash(strings.ToLower(f.rel)+"|"+strings.ToLower(f.value))
+		// Both endpoints get a node regardless of which way the edge ends up
+		// pointing, so the flip below only reorients the edge.
+		src, dst := addNode(f.subj), addNode(f.obj)
+		srcLabel, dstLabel := subjectLabel(f.subj), strings.TrimSpace(f.obj)
+		rel := normRel(f.rel)
+		if inv, ok := inverseRel[rel]; ok {
+			src, dst = dst, src
+			srcLabel, dstLabel = dstLabel, srcLabel
+			rel = inv
+		}
+		// Keyed on the canonical ids and the normalized relationship, so the same
+		// fact phrased differently ("me"/"user", "has CTO"/"has cto", "Chew is CTO
+		// of Alphaus"/"Alphaus has CTO Chew") converges on one edge instead of
+		// accumulating near-duplicates.
+		eid := "e_" + hash(src+"|"+rel+"|"+dst)
 		// Dedup within this single commit: a mutation set can't carry two writes
 		// for the same key. Idempotency across commits is the server's job.
-		if !seenN[nid] {
-			nodes = append(nodes, &agentpb.GraphNode{NodeId: nid, Label: f.value})
-			seenN[nid] = true
-		}
 		if !seenE[eid] {
 			edges = append(edges, &agentpb.GraphEdge{
-				EdgeId: eid, SourceNodeId: userNode, TargetNodeId: nid, RelationshipType: normRel(f.rel),
+				EdgeId: eid, SourceNodeId: src, TargetNodeId: dst, RelationshipType: rel,
 			})
 			seenE[eid] = true
 		}
+		stored = append(stored, tripleText(srcLabel, rel, dstLabel))
 	}
 
 	req := &agentpb.CommitMemoryRequest{
@@ -347,8 +419,8 @@ func commitTurn(ctx context.Context, jc *jennahClient, agentID, userMsg, reply s
 	if err != nil {
 		return err
 	}
-	for _, f := range facts {
-		vlog("stored fact: user %s %s", prettyRel(normRel(f.rel)), f.value)
+	for _, s := range stored {
+		vlog("stored fact: %s", s)
 	}
 	printReceipt(resp)
 	return nil
@@ -471,7 +543,9 @@ type state struct {
 	AgentID string `json:"agent_id"`
 }
 
-type fact struct{ rel, value string }
+// fact is one (subject)-[relationship]->(object) triple the model chose to store.
+// An empty subj means the user themselves, the one entity with a fixed node id.
+type fact struct{ subj, rel, obj string }
 
 func loadState(path string) (*state, error) {
 	st := &state{}
@@ -510,6 +584,71 @@ func randID(prefix string) string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
 	return prefix + "_" + hex.EncodeToString(b[:])
+}
+
+// nodeID maps an entity label to its stable node id, content-hashed so the same
+// entity named twice converges on one node instead of fragmenting.
+//
+// The user is the exception: they get the fixed "user" id, because a traversal
+// needs one known place to start. Anything the model offers as a synonym for the
+// user (an omitted subject, or "me", "I", "the user") folds onto that anchor, so
+// a phrasing choice can't strand facts on a rival node the traversal never visits.
+func nodeID(label string) string {
+	if isUserRef(label) {
+		return userNode
+	}
+	return "n_" + hash(strings.ToLower(strings.TrimSpace(label)))
+}
+
+func isUserRef(label string) bool {
+	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "", "user", "the user", "me", "i", "myself":
+		return true
+	}
+	return false
+}
+
+// subjectLabel renders a fact's subject for display, naming the user when the
+// model left the subject implicit.
+func subjectLabel(subj string) string {
+	if isUserRef(subj) {
+		return "user"
+	}
+	return strings.TrimSpace(subj)
+}
+
+// tripleText renders one triple as the readable line the prompt and --verbose show.
+func tripleText(subj, rel, obj string) string {
+	return fmt.Sprintf("%s %s %s", subj, prettyRel(rel), obj)
+}
+
+// inverseRel canonicalizes edge DIRECTION. A key is a relationship the model emits
+// pointing the "wrong" way; its value is the canonical relationship to store once
+// source and target are swapped. So "Chew is CTO of Alphaus" and "Alphaus has CTO
+// Chew" both land as Alphaus -[HAS_CTO]-> Chew, one edge with one id.
+//
+// The convention is container first: the organization, department or owner is the
+// source, and the person or part it contains is the target. That direction is the
+// one the model already picks most often, and it makes an outward walk from an org
+// node enumerate its people.
+//
+// This is NOT an ontology. The relationship vocabulary stays open, and a predicate
+// absent from this table is stored exactly as the model phrased it. The table only
+// lists pairs actually observed being emitted BOTH ways across repeated runs of the
+// same conversation; predicates seen in only one direction (REPORTS_TO always runs
+// person -> manager, IS_NAMED always user -> name) are left alone rather than given
+// an invented opposite. Synonyms that agree on direction (OWNS vs OWNS_DEPARTMENT)
+// are a separate axis this deliberately does not touch.
+var inverseRel = map[string]string{
+	"IS_CEO_OF":          "HAS_CEO",
+	"IS_CTO_OF":          "HAS_CTO",
+	"IS_COO_OF":          "HAS_COO",
+	"IS_CFO_OF":          "HAS_CFO",
+	"IS_MEMBER_OF":       "HAS_MEMBER",
+	"IS_PART_OF":         "HAS_PART",
+	"IS_A_DEPARTMENT_OF": "HAS_DEPARTMENT",
+	"IS_OWNED_BY":        "OWNS",
+	"BELONGS_TO":         "HAS_MEMBER",
 }
 
 // normRel turns a verb phrase into an edge RelationshipType, e.g. "is named" -> "IS_NAMED".

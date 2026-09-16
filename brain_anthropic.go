@@ -39,10 +39,13 @@ func (b *anthropicBrain) chat(ctx context.Context, system, userMsg string) (stri
 		Description: anthropic.String(toolDesc),
 		InputSchema: anthropic.ToolInputSchemaParam{
 			Properties: map[string]any{
+				"subject":      map[string]any{"type": "string", "description": toolSubjDesc},
 				"relationship": map[string]any{"type": "string", "description": toolRelDesc},
-				"value":        map[string]any{"type": "string", "description": toolValDesc},
+				"object":       map[string]any{"type": "string", "description": toolObjDesc},
 			},
-			Required: []string{"relationship", "value"},
+			// subject is optional: omitted means the user, which keeps the common
+			// case ("my name is Hajime") a two-field call exactly as before.
+			Required: []string{"relationship", "object"},
 		},
 	}}}
 
@@ -71,12 +74,13 @@ func (b *anthropicBrain) chat(ctx context.Context, system, userMsg string) (stri
 				reply.WriteString(v.Text)
 			case anthropic.ToolUseBlock:
 				var in struct {
+					Subject      string `json:"subject"`
 					Relationship string `json:"relationship"`
-					Value        string `json:"value"`
+					Object       string `json:"object"`
 				}
 				_ = json.Unmarshal([]byte(v.JSON.Input.Raw()), &in)
-				if strings.TrimSpace(in.Relationship) != "" && strings.TrimSpace(in.Value) != "" {
-					facts = append(facts, fact{rel: in.Relationship, value: in.Value})
+				if strings.TrimSpace(in.Relationship) != "" && strings.TrimSpace(in.Object) != "" {
+					facts = append(facts, fact{subj: in.Subject, rel: in.Relationship, obj: in.Object})
 				}
 				toolResults = append(toolResults, anthropic.NewToolResultBlock(blk.ID, "noted", false))
 			}
