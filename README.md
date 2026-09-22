@@ -202,8 +202,7 @@ the default arm does not have to build:
   user refers to themselves, the subject is omitted and resolves to `user`. When
   facts describe third-party entities, both subject and object are explicitly named.
 - **Relationship Normalization**: Reverse relationship phrases are normalized before
-  commit (for example, `Chew IS_CTO_OF Alphaus` is normalized to
-  `Alphaus HAS_CTO Chew`).
+  commit.
 
 ## Prerequisites
 
