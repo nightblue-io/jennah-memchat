@@ -45,7 +45,7 @@ func newAnthropicBrain(apiKey string, offerTool bool) *anthropicBrain {
 					"object":       map[string]any{"type": "string", "description": toolObjDesc},
 				},
 				// subject is optional: omitted means the user, which keeps the common
-				// case ("my name is Hajime") a two-field call exactly as before.
+				// case ("my name is Sabrina") a two-field call exactly as before.
 				Required: []string{"relationship", "object"},
 			},
 		}}}

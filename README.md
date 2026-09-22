@@ -75,12 +75,12 @@ you> Actually I moved to Tokyo last week.
 
 memo> Oh, congratulations on the move! ...
   [forming memory from 4 turn(s), key frm_sess_d310a0d4_2 ...]
-  known    Hajime works as a backend engineer at Alphaus.
+  known    Sabrina works as a backend engineer at NightBlue.
            (matches fct_b862ea8b...)
-  revised  Hajime lives in Tokyo, having moved from Osaka.
+  revised  Sabrina lives in Tokyo, having moved from Osaka.
            (retired fct_85ff9222...)
-  known    Hajime works at Alphaus (matches rel_e52a9fc8...)
-  revised  Hajime lives in Tokyo (retired rel_99f7081d...)
+  known    Sabrina works at NightBlue (matches rel_e52a9fc8...)
+  revised  Sabrina lives in Tokyo (retired rel_99f7081d...)
   formed:  log=1 vec=0(+1 superseded) nodes=2 edges=0(+1 superseded)
            @ 2026-09-22T03:34:12Z
   [memory] 2 earlier assertion(s) retired by a correction in this turn
@@ -101,7 +101,7 @@ memo> Oh, congratulations on the move! ...
 Recalled chunks include provenance metadata displayed under `-verbose`:
 
 ```text
-  ~ Hajime lives in Tokyo, having recently moved there from Osaka.
+  ~ Sabrina lives in Tokyo, having recently moved there from Osaka.
     [formed by frm_1f68a103..., turn(s) 0,2]
 ```
 
@@ -226,7 +226,7 @@ go run .
 To test contradiction handling and supersession:
 
 ```text
-you> Hi, I am Hajime. I live in Osaka and work at Alphaus as an engineer.
+you> Hi, I am Sabrina. I live in Osaka and work at NightBlue as an engineer.
 you> Actually I moved to Tokyo last week.
 ```
 

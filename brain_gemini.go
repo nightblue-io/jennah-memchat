@@ -80,7 +80,7 @@ func newGeminiBrain(ctx context.Context, offerTool bool) (*geminiBrain, error) {
 						"object":       {Type: genai.TypeString, Description: toolObjDesc},
 					},
 					// subject is optional: omitted means the user, which keeps the
-					// common case ("my name is Hajime") a two-field call as before.
+					// common case ("my name is Sabrina") a two-field call as before.
 					Required: []string{"relationship", "object"},
 				},
 			}},

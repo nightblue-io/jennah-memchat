@@ -412,12 +412,12 @@ const (
 // This uses memory:inspect rather than a memory:query traversal, and the reason is
 // edge DIRECTION. A traversal row projects the edge's id, type and valid-time but
 // not its endpoints, so orientation is only known when the step pins a direction:
-// an OUTGOING walk from the user anchor reads "user is named Hajime" correctly and
-// never sees "Chew is cto of Alphaus", because that edge points AT Alphaus rather
+// an OUTGOING walk from the user anchor reads "user is named Sabrina" correctly and
+// never sees "Chew is cto of NightBlue", because that edge points AT NightBlue rather
 // than away from it. Which way a fact points is the model's phrasing choice, so
 // half the graph would silently vanish from the prompt. Pinning INCOMING instead
 // just loses the other half, and a path that changes direction mid-walk (user ->
-// Hajime -> Alphaus <- Chew) is not expressible as one query at all, since steps
+// Sabrina -> NightBlue <- Chew) is not expressible as one query at all, since steps
 // fix a direction per hop.
 //
 // Inspect returns edges with source_node_id and target_node_id, so every fact is
@@ -785,7 +785,7 @@ func commitTurn(ctx context.Context, jc *jennahClient, agentID, userMsg, reply s
 		}
 		// Keyed on the canonical ids and the normalized relationship, so the same
 		// fact phrased differently ("me"/"user", "has CTO"/"has cto", "Chew is CTO
-		// of Alphaus"/"Alphaus has CTO Chew") converges on one edge instead of
+		// of NightBlue"/"NightBlue has CTO Chew") converges on one edge instead of
 		// accumulating near-duplicates.
 		eid := "e_" + hash(src+"|"+rel+"|"+dst)
 		// Dedup within this single commit: a mutation set can't carry two writes
@@ -1082,8 +1082,8 @@ func tripleText(subj, rel, obj string) string {
 
 // inverseRel canonicalizes edge DIRECTION. A key is a relationship the model emits
 // pointing the "wrong" way; its value is the canonical relationship to store once
-// source and target are swapped. So "Chew is CTO of Alphaus" and "Alphaus has CTO
-// Chew" both land as Alphaus -[HAS_CTO]-> Chew, one edge with one id.
+// source and target are swapped. So "Chew is CTO of NightBlue" and "NightBlue has CTO
+// Chew" both land as NightBlue -[HAS_CTO]-> Chew, one edge with one id.
 //
 // The convention is container first: the organization, department or owner is the
 // source, and the person or part it contains is the target. That direction is the

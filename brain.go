@@ -44,9 +44,9 @@ type brain interface {
 const (
 	toolName     = "remember_fact"
 	toolDesc     = "Store ONE durable fact in long-term memory as a (subject)-[relationship]->(object) triple. Call once per fact, and call as many times as a message needs: a fact mentioning several entities is several calls, never one call with a list crammed into a field. Use for stable facts worth recalling in future sessions (the user's name, preferences, job, location and goals, and the people, organizations, teams and things they tell you about, including how those relate to each other); do NOT store transient chit-chat or questions."
-	toolSubjDesc = "the single entity the fact is about, e.g. 'Alice', 'Alphaus', 'FinOps Consulting'. OMIT it whenever the fact is the user talking about themselves ('my name is X', 'I live in Y', 'I work at Z'), and keep omitting it once you know their name: the user already has a dedicated node, so naming them here creates a duplicate of them. Name a subject only for facts about someone or something else."
+	toolSubjDesc = "the single entity the fact is about, e.g. 'Alice', 'NightBlue', 'FinOps Consulting'. OMIT it whenever the fact is the user talking about themselves ('my name is X', 'I live in Y', 'I work at Z'), and keep omitting it once you know their name: the user already has a dedicated node, so naming them here creates a duplicate of them. Name a subject only for facts about someone or something else."
 	toolRelDesc  = "short verb phrase linking subject to object, e.g. 'is named', 'likes', 'lives in', 'works at', 'has cto', 'owns', 'reports to', 'has member'"
-	toolObjDesc  = "the single entity or value the relationship points at, e.g. 'Alice', 'hiking', 'Tokyo', 'Alphaus'. Exactly one, never a list: three members of a team is three calls, and two roles held by one person is two calls."
+	toolObjDesc  = "the single entity or value the relationship points at, e.g. 'Alice', 'hiking', 'Tokyo', 'NightBlue'. Exactly one, never a list: three members of a team is three calls, and two roles held by one person is two calls."
 )
 
 // newBrain selects the chat provider. "auto" prefers Anthropic when an Anthropic
