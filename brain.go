@@ -9,16 +9,28 @@ import (
 
 // brain is the pluggable chat LLM. It owns the session-local conversation history
 // (so the current chat stays coherent) and, given a freshly-built system prompt
-// reflecting what Jennah remembers, returns the assistant's reply plus any facts
-// the model chose to persist via the remember_fact tool. Everything Jennah-facing
-// in this demo is identical regardless of which brain answers — that's the point.
+// reflecting what Jennah remembers, returns the assistant's reply. Everything
+// Jennah-facing in this demo is identical regardless of which brain answers -
+// that's the point.
+//
+// The facts return belongs to the --authored arm alone. By DEFAULT this demo forms
+// memory with memory:form, and the brain is asked for nothing but a reply: what was
+// worth remembering is the platform's decision, so no tool is offered and facts
+// comes back nil.
 type brain interface {
 	chat(ctx context.Context, system, userMsg string) (reply string, facts []fact, err error)
 	label() string // short "provider/model" string for the startup banner
 }
 
-// The remember_fact tool, described once and mapped into each SDK's own tool type
-// so the two backends stay in lockstep. It stores ONE (subject)-[relationship]->(object)
+// ---- the remember_fact tool: the --authored arm's extraction schema ----
+//
+// EVERYTHING IN THIS BLOCK IS WHAT memory:form REPLACES, and it is kept, behind
+// --authored, because the contrast is the most useful thing this demo can show an
+// integrator: this is the apparatus you own the moment you decide to extract memory
+// in your own client, and the paragraph below is how you find out you own it.
+//
+// The tool is described once and mapped into each SDK's own tool type so the two
+// backends stay in lockstep. It stores ONE (subject)-[relationship]->(object)
 // triple per call; commitTurn turns those into graph nodes/edges.
 //
 // The subject is a FIELD, not an assumption. An earlier version of this tool took
@@ -38,10 +50,16 @@ const (
 )
 
 // newBrain selects the chat provider. "auto" prefers Anthropic when an Anthropic
-// key is present, else Gemini — so someone with only one key set just runs `go run .`.
+// key is present, else Gemini, so someone with only one key set just runs `go run .`.
 // anthropicKey, when non-empty, is the Anthropic API key from --anthropic-api-key
 // (already defaulted to $ANTHROPIC_API_KEY); it overrides the SDK's own env lookup.
-func newBrain(ctx context.Context, provider, anthropicKey string) (brain, error) {
+//
+// offerTool decides whether the brain is given remember_fact, and it is the whole
+// difference between the two arms on the model side. Under --authored the tool is
+// offered and the model does the extracting; by default it is not offered at all,
+// because a tool the platform is about to do the work of would spend the caller's
+// own tokens to produce a second, rival opinion about what to remember.
+func newBrain(ctx context.Context, provider, anthropicKey string, offerTool bool) (brain, error) {
 	if provider == "auto" {
 		switch {
 		case anthropicKey != "":
@@ -54,9 +72,9 @@ func newBrain(ctx context.Context, provider, anthropicKey string) (brain, error)
 	}
 	switch strings.ToLower(provider) {
 	case "gemini":
-		return newGeminiBrain(ctx)
+		return newGeminiBrain(ctx, offerTool)
 	case "anthropic", "claude":
-		return newAnthropicBrain(anthropicKey), nil
+		return newAnthropicBrain(anthropicKey, offerTool), nil
 	default:
 		return nil, fmt.Errorf("unknown --provider %q (want auto|gemini|anthropic)", provider)
 	}

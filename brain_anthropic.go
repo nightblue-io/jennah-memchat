@@ -15,40 +15,47 @@ const anthropicModel = anthropic.Model("claude-sonnet-5")
 
 // anthropicBrain is the Claude backend. It reads ANTHROPIC_API_KEY (or an ambient
 // ant profile) and keeps the session transcript in the SDK's message type.
+//
+// tools is empty by default and holds remember_fact only under --authored, so the
+// tool-use branch of chat below is dead code in the default arm. That is the shape
+// of the change formation makes to a client: not a different call, one fewer job.
 type anthropicBrain struct {
 	client  anthropic.Client
 	history []anthropic.MessageParam
+	tools   []anthropic.ToolUnionParam
 }
 
 // newAnthropicBrain builds the Claude backend. When apiKey is non-empty (from
 // --anthropic-api-key) it's passed explicitly; otherwise the SDK falls back to
 // its usual ANTHROPIC_API_KEY / ambient profile resolution.
-func newAnthropicBrain(apiKey string) *anthropicBrain {
+func newAnthropicBrain(apiKey string, offerTool bool) *anthropicBrain {
 	var opts []option.RequestOption
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
-	return &anthropicBrain{client: anthropic.NewClient(opts...)}
+	b := &anthropicBrain{client: anthropic.NewClient(opts...)}
+	if offerTool {
+		b.tools = []anthropic.ToolUnionParam{{OfTool: &anthropic.ToolParam{
+			Name:        toolName,
+			Description: anthropic.String(toolDesc),
+			InputSchema: anthropic.ToolInputSchemaParam{
+				Properties: map[string]any{
+					"subject":      map[string]any{"type": "string", "description": toolSubjDesc},
+					"relationship": map[string]any{"type": "string", "description": toolRelDesc},
+					"object":       map[string]any{"type": "string", "description": toolObjDesc},
+				},
+				// subject is optional: omitted means the user, which keeps the common
+				// case ("my name is Hajime") a two-field call exactly as before.
+				Required: []string{"relationship", "object"},
+			},
+		}}}
+	}
+	return b
 }
 
 func (b *anthropicBrain) label() string { return "anthropic/" + string(anthropicModel) }
 
 func (b *anthropicBrain) chat(ctx context.Context, system, userMsg string) (string, []fact, error) {
-	tools := []anthropic.ToolUnionParam{{OfTool: &anthropic.ToolParam{
-		Name:        toolName,
-		Description: anthropic.String(toolDesc),
-		InputSchema: anthropic.ToolInputSchemaParam{
-			Properties: map[string]any{
-				"subject":      map[string]any{"type": "string", "description": toolSubjDesc},
-				"relationship": map[string]any{"type": "string", "description": toolRelDesc},
-				"object":       map[string]any{"type": "string", "description": toolObjDesc},
-			},
-			// subject is optional: omitted means the user, which keeps the common
-			// case ("my name is Hajime") a two-field call exactly as before.
-			Required: []string{"relationship", "object"},
-		},
-	}}}
-
 	b.history = append(b.history, anthropic.NewUserMessage(anthropic.NewTextBlock(userMsg)))
 
 	var facts []fact
@@ -59,7 +66,7 @@ func (b *anthropicBrain) chat(ctx context.Context, system, userMsg string) (stri
 			MaxTokens: 2048,
 			System:    []anthropic.TextBlockParam{{Text: system}},
 			Messages:  b.history,
-			Tools:     tools,
+			Tools:     b.tools,
 			Thinking:  anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}},
 		})
 		if err != nil {

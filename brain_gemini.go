@@ -37,13 +37,17 @@ func useVertexAI() bool {
 		os.Getenv("GOOGLE_CLOUD_PROJECT") != ""
 }
 
-func newGeminiBrain(ctx context.Context) (*geminiBrain, error) {
+// newGeminiBrain builds the Gemini backend. offerTool declares remember_fact,
+// and only the --authored arm passes true: by default formation does the
+// extracting, so the model is given no tool and the tool-call branch of chat
+// below never fires.
+func newGeminiBrain(ctx context.Context, offerTool bool) (*geminiBrain, error) {
 	cc := &genai.ClientConfig{Backend: genai.BackendGeminiAPI}
 	backend := "ai-studio"
 	if useVertexAI() {
 		// Vertex uses Application Default Credentials (run once:
 		//   gcloud auth application-default login
-		// or set GOOGLE_APPLICATION_CREDENTIALS to a service-account key) — no
+		// or set GOOGLE_APPLICATION_CREDENTIALS to a service-account key), not an
 		// API key. Project/location come from the standard GCP env vars.
 		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
 		if project == "" {
@@ -62,9 +66,9 @@ func newGeminiBrain(ctx context.Context) (*geminiBrain, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gemini client: %w", err)
 	}
-	config := &genai.GenerateContentConfig{
-		MaxOutputTokens: 2048,
-		Tools: []*genai.Tool{{
+	config := &genai.GenerateContentConfig{MaxOutputTokens: 2048}
+	if offerTool {
+		config.Tools = []*genai.Tool{{
 			FunctionDeclarations: []*genai.FunctionDeclaration{{
 				Name:        toolName,
 				Description: toolDesc,
@@ -80,7 +84,7 @@ func newGeminiBrain(ctx context.Context) (*geminiBrain, error) {
 					Required: []string{"relationship", "object"},
 				},
 			}},
-		}},
+		}}
 	}
 	return &geminiBrain{client: client, backend: backend, config: config}, nil
 }

@@ -1,0 +1,78 @@
+# A starting vocabulary for memchat: the entity classes and relation types that
+# memory formation classifies against for a personal assistant.
+#
+# Declare it on one workspace (management credentials, not an API key):
+#
+#   jnh vocabulary declare --scope demo.memchat_xxx --from-file vocabulary.yaml
+#
+# or enterprise-wide, as the default for every scope, by omitting --scope.
+# Read back what is in effect with `jnh vocabulary show --scope demo.memchat_xxx`.
+#
+# A DESCRIPTION IS AN INPUT, NOT DOCUMENTATION. Each one is rendered beside its
+# name into the extraction prompt, and is the signal that separates classes whose
+# names do not speak for themselves. Signatures are advisory: they steer the
+# model and are never enforced, so nothing is refused for being off vocabulary.
+entityClasses:
+  - name: Person
+    description: a named individual, including the person speaking and anyone they mention
+  - name: Organization
+    description: a company, employer, school, or other institution
+  - name: Team
+    description: a group inside an organization, such as a department, squad, or project team
+  - name: Place
+    description: a city, country, region, or other named location
+  - name: Role
+    description: a job title or position a person holds, such as CTO or backend engineer
+  - name: Interest
+    description: a hobby, pastime, skill, or topic a person cares about
+
+relationTypes:
+  - name: WORKS_AT
+    description: a person is employed by an organization
+    signatures:
+      - sourceClass: Person
+        targetClass: Organization
+  - name: LEADS
+    description: a person is in charge of a team or an organization
+    signatures:
+      - sourceClass: Person
+        targetClass: Team
+      - sourceClass: Person
+        targetClass: Organization
+  - name: MEMBER_OF
+    description: a person belongs to a team without leading it
+    signatures:
+      - sourceClass: Person
+        targetClass: Team
+  - name: PART_OF
+    description: a team belongs to an organization
+    signatures:
+      - sourceClass: Team
+        targetClass: Organization
+  - name: REPORTS_TO
+    description: a person's manager in the reporting line
+    signatures:
+      - sourceClass: Person
+        targetClass: Person
+  - name: HAS_ROLE
+    description: a person holds a job title or position
+    signatures:
+      - sourceClass: Person
+        targetClass: Role
+  - name: LIVES_IN
+    description: where a person resides; use this for people, never for organizations
+    signatures:
+      - sourceClass: Person
+        targetClass: Place
+  - name: LOCATED_IN
+    description: where an organization or team is based; use this for organizations, never for people
+    signatures:
+      - sourceClass: Organization
+        targetClass: Place
+      - sourceClass: Team
+        targetClass: Place
+  - name: INTERESTED_IN
+    description: a hobby, pastime, or topic a person cares about
+    signatures:
+      - sourceClass: Person
+        targetClass: Interest
